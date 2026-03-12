@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import joblib
+from huggingface_hub import hf_hub_download
 
 app = FastAPI(
     title="Flight Price Prediction API",
@@ -22,20 +23,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Load models ──
 xgb_model = None
 lgb_model = None
 feature_cols = None
 
+REPO_ID = "RAHULSR2806/flight-price-models"
+
 @app.on_event("startup")
 async def load_models():
     global xgb_model, lgb_model, feature_cols
-    xgb_model    = joblib.load("flight_price_xgb_final.pkl")
-    lgb_model    = joblib.load("flight_price_lgb_final.pkl")
-    feature_cols = joblib.load("flight_feature_cols.pkl")
+    print("⬇️ Downloading models from Hugging Face...")
+    xgb_path  = hf_hub_download(repo_id=REPO_ID, filename="flight_price_xgb_final.pkl")
+    lgb_path  = hf_hub_download(repo_id=REPO_ID, filename="flight_price_lgb_final.pkl")
+    cols_path = hf_hub_download(repo_id=REPO_ID, filename="flight_feature_cols.pkl")
+    xgb_model    = joblib.load(xgb_path)
+    lgb_model    = joblib.load(lgb_path)
+    feature_cols = joblib.load(cols_path)
     print("✅ Models loaded!")
 
-# ── Mappings ──
 AIRLINE_ENC = {
     "IndiGo":0,"Air India":1,"Jet Airways":2,"SpiceJet":3,
     "Multiple carriers":4,"GoAir":5,"Vistara":6,"Air Asia":7,
@@ -122,7 +127,6 @@ def build_features(inp: FlightInput) -> pd.DataFrame:
         "Route_x_Stops": route_length * stops_num,
     }
     df = pd.DataFrame([d])
-    # Align with training feature order
     for col in feature_cols:
         if col not in df.columns:
             df[col] = 0
@@ -159,7 +163,6 @@ async def predict(inp: FlightInput):
         xgb_price = float(np.expm1(xgb_log))
         lgb_price = float(np.expm1(lgb_log))
 
-        # Price range (±10%)
         price_low  = round(price * 0.90)
         price_high = round(price * 1.10)
 
